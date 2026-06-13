@@ -1,53 +1,37 @@
-# See http://help.github.com/ignore-files/ for more about ignoring files.
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+*.whl
 
-# compiled output
-dist
-tmp
-/out-tsc
+# Go
+vendor/
+go.sum
 
-# dependencies
-node_modules
+# Node / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
 
-# IDEs and editors
-/.idea
-.project
-.classpath
-.c9/
-*.launch
-.settings/
-*.sublime-workspace
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-# IDE - VSCode
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-
-# misc
-/.sass-cache
-/connect.lock
-/coverage
-/libpeerconnection.log
-npm-debug.log
-yarn-error.log
-testem.log
-/typings
-
-# System Files
+# OS
 .DS_Store
 Thumbs.db
-
-# Next.js
-.next
-.env.local
-.env.flyio
-.env.sin
-.env.vir
-.env
-pm2.json
-
-logs/*
-.vercel
-
-.cursor/*
