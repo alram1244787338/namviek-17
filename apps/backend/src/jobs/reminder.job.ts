@@ -8,6 +8,8 @@ import {
   setJSONCache
 } from '../lib/redis'
 
+const LOG_TAG = '[reminder.job]'
+
 type TaskReminderParams = {
   remindAt: Date
   remindBefore?: number
@@ -56,11 +58,22 @@ export default class TaskReminderJob {
     const key = `remind*task-${taskId}`
     const results = await findCacheByTerm(key)
 
-    if (!results.length) return
+    if (!results.length) {
+      console.log(`${LOG_TAG} [delete] no reminder keys found for task=${taskId}`)
+      return
+    }
 
-    results.forEach(k => {
-      delCache([k])
+    // Use Promise.all to await all deletions and also delete any sent-dedup markers
+    const deletions = results.map(async k => {
+      await delCache([k])
+      // Also remove the sent-dedup marker so a re-created reminder can fire normally
+      await delCache([`sent:${k}`])
     })
+    await Promise.all(deletions)
+
+    console.log(
+      `${LOG_TAG} [delete] removed ${results.length} reminder(s) for task=${taskId}`
+    )
   }
 
   async create({
@@ -86,7 +99,7 @@ export default class TaskReminderJob {
     }
 
     if (d1 <= now) {
-      console.log('Can not create reminder, because remind time less than now')
+      console.log(`${LOG_TAG} [create-skip] remind time is in the past, task=${taskId}`)
       return
     }
 
@@ -108,6 +121,10 @@ export default class TaskReminderJob {
         link
       },
       Math.ceil(expired)
+    )
+
+    console.log(
+      `${LOG_TAG} [create] key=${key}, task=${taskId}, remindAt=${d1.toISOString()}`
     )
   }
 

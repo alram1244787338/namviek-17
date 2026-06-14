@@ -84,14 +84,15 @@ export default class TaskUpdateService {
       }
 
       if (isDueDateChanged && !isDone) {
-        // delete reminders in caches
-        this._deleteTaskReminderById(result.id)
-        // and create new reminder
-        this._createTaskReminder(result)
+        // delete old reminders first, then create new ones
+        // MUST await delete before create, otherwise the delete could
+        // remove the freshly-created reminder (race condition).
+        await this._deleteTaskReminderById(result.id)
+        await this._createTaskReminder(result)
       }
 
       if (isDone) {
-        this._deleteTaskReminderById(result.id)
+        await this._deleteTaskReminderById(result.id)
       }
 
       return result
@@ -328,22 +329,20 @@ export default class TaskUpdateService {
     }
 
     // remind at due date
-    this.taskReminderJob.create({
+    await this.taskReminderJob.create({
       remindAt: task.dueDate,
       taskId: task.id,
       projectId: task.projectId,
-      // link: taskLink,
       message: task.title,
       receivers
     })
 
     // remind before 60 minutes
-    this.taskReminderJob.create({
+    await this.taskReminderJob.create({
       remindAt: task.dueDate,
       remindBefore: 60,
       taskId: task.id,
       projectId: task.projectId,
-      // link: taskLink,
       message: task.title,
       receivers
     })
@@ -401,7 +400,7 @@ export default class TaskUpdateService {
   }
 
   private async _deleteTaskReminderById(taskId: string) {
-    this.taskReminderJob.delete(taskId)
+    await this.taskReminderJob.delete(taskId)
   }
 
   async notifyNewTaskToAssignee({ uid, task }: { uid: string; task: Task }) {

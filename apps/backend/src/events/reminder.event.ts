@@ -1,5 +1,5 @@
 import { notifyToWebUsers } from '../lib/buzzer'
-import { getJSONCache } from '../lib/redis'
+import { delCache, getJSONCache, redis } from '../lib/redis'
 import TaskReminderJob from '../jobs/reminder.job'
 import { mdUserFindEmailsByUids } from '@database'
 import { sendEmail } from '../lib/email'
@@ -10,6 +10,8 @@ type RemindPayload = {
   receivers: string[]
 }
 
+const LOG_TAG = '[reminder.event]'
+
 export class ReminderEvent {
   taskReminderJob: TaskReminderJob
   constructor() {
@@ -18,39 +20,68 @@ export class ReminderEvent {
   async run() {
     try {
       const now = new Date()
-      // console.log('reminder.event called', now)
 
       const results = await this.taskReminderJob.findByTime(now)
 
       if (!results.length) return
 
-      results.forEach(async k => {
-        const data = await getJSONCache([k])
-        if (!data) return
+      // Use for...of to properly await each iteration (forEach+async swallows errors)
+      for (const k of results) {
+        try {
+          // Atomic dedup: try to set a "sent" marker key with SET NX and 10min TTL.
+          // If the key already exists, this reminder was already processed — skip it.
+          const dedupKey = `sent:${k}`
+          const acquired = await redis.set(dedupKey, '1', 'EX', 600, 'NX')
 
-        this.sendNotification(data as RemindPayload)
-        this.sendEmailReminder(data as RemindPayload)
-        // const { receivers, message, link } = data as RemindPayload
-        // if (!receivers || !receivers.length) return
-        //
-        // const receiverSets = new Set(receivers)
-        // const filteredReceivers = Array.from(receiverSets)
-        //
-        // notifyToWebUsers(filteredReceivers, {
-        //   title: 'Reminder ⏰',
-        //   body: message,
-        //   deep_link: link
-        // })
+          if (!acquired) {
+            console.log(
+              `${LOG_TAG} [dedup-skip] reminder already sent, key=${k}`
+            )
+            continue
+          }
 
-        // sendEmail({
-        //   emails,
-        //   subject,
-        //   html,
-        // })
-      })
+          const data = await getJSONCache([k])
+          if (!data) {
+            // Key expired between findByTime and getJSONCache — safe to clean up
+            await redis.del(dedupKey)
+            continue
+          }
+
+          const payload = data as RemindPayload
+          await this.sendNotification(payload)
+          await this.sendEmailReminder(payload)
+
+          // Delete the original reminder key immediately after successful delivery
+          // so subsequent cron ticks within the TTL window won't pick it up again.
+          await delCache([k])
+
+          console.log(
+            `${LOG_TAG} [delivered] taskId=${this._extractTaskId(k)}, receivers=${payload.receivers?.length || 0}`
+          )
+        } catch (err) {
+          // If delivery failed, remove the dedup marker so a retry can pick it up.
+          const dedupKey = `sent:${k}`
+          await redis.del(dedupKey)
+          console.error(
+            `${LOG_TAG} [delivery-error] key=${k}`,
+            err instanceof Error ? err.message : err
+          )
+        }
+      }
     } catch (error) {
-      console.log(error)
+      console.error(
+        `${LOG_TAG} [run-error]`,
+        error instanceof Error ? error.message : error
+      )
     }
+  }
+
+  /**
+   * Extract taskId from a reminder Redis key like "remind-20240614-12:30-task-<taskId>"
+   */
+  private _extractTaskId(key: string): string {
+    const match = key.match(/task-(.+)$/)
+    return match ? match[1] : 'unknown'
   }
 
   async sendNotification(data: RemindPayload) {
@@ -60,7 +91,7 @@ export class ReminderEvent {
     const receiverSets = new Set(receivers)
     const filteredReceivers = Array.from(receiverSets)
 
-    notifyToWebUsers(filteredReceivers, {
+    await notifyToWebUsers(filteredReceivers, {
       title: 'Reminder ⏰',
       body: message,
       deep_link: link
@@ -73,10 +104,9 @@ export class ReminderEvent {
 
     const emails = await mdUserFindEmailsByUids(receivers)
 
-    console.log(emails)
     if (!emails.length) return
 
-    sendEmail({
+    await sendEmail({
       emails,
       subject: 'Reminder ⏰',
       html: `

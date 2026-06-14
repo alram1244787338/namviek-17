@@ -334,21 +334,14 @@ router.delete('/project/tasks', async (req: AuthRequest, res) => {
   const { ids, projectId } = req.query as { ids: string[]; projectId: string }
   console.log('delete multiple task', ids, projectId)
   try {
-    // Get tasks before deletion for cleanup purposes
-    // const tasksToDelete = await mdTaskGetAll({ id: { in: ids } })
-    
     // Delete all tasks in a single operation
     await mdTaskDeleteMany(ids)
-    
+
     const key = [CKEY.TASK_QUERY, projectId]
 
-    // Clean up related data
-    // for (const task of tasksToDelete) {
-    //   taskReminderJob.delete(task.id)
-    //   if (!task.done && task.assigneeIds && task.assigneeIds[0]) {
-    //     await deleteTodoCounter([task.assigneeIds[0], projectId])
-    //   }
-    // }
+    // Clean up reminders for all deleted tasks
+    const reminderCleanups = ids.map(id => taskReminderJob.delete(id))
+    await Promise.allSettled(reminderCleanups)
 
     await findNDelCaches(key)
     taskPusherJob.triggerUpdateEvent({

@@ -106,7 +106,7 @@ export default class TaskCreateService {
           uid
         })
         if (!done) {
-          this.createTaskReminder(result)
+          await this.createTaskReminder(result)
         }
 
         return result
@@ -156,7 +156,7 @@ export default class TaskCreateService {
     }
 
     // remind at due date
-    this.taskReminderJob.create({
+    await this.taskReminderJob.create({
       remindAt: task.dueDate,
       taskId: task.id,
       projectId: task.projectId,
@@ -165,7 +165,7 @@ export default class TaskCreateService {
     })
 
     // remind before 60 minutes
-    this.taskReminderJob.create({
+    await this.taskReminderJob.create({
       remindAt: task.dueDate,
       remindBefore: 60,
       taskId: task.id,
